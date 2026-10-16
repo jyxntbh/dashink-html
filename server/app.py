@@ -1,15 +1,3 @@
-"""Renders Proxmox and weather stats as a PNG for an e-ink Kindle.
-
-Endpoints:
-  GET     /dash.png      the dashboard, or a photo when art is scheduled
-  POST    /ingest/media  media pool usage, pushed by the collector on the storage host
-  POST    /override      pin an image for a while, X-Dashink-Token
-  DELETE  /override      drop the pinned image
-  GET     /art.png       a photo now, ignoring the schedule
-  GET     /state.json    raw source state, for debugging a render you cannot see
-  GET     /healthz       liveness for the compose healthcheck
-"""
-
 import hmac
 import logging
 import os
@@ -19,6 +7,7 @@ from datetime import datetime
 from flask import Flask, Response, jsonify, request
 
 import render
+import layout
 from sources import (Expiring, immich_image, immich_source, kuma_source,
                      local_host_source, media_store, parse_media_payload,
                      pve_source, weather_source)
@@ -38,8 +27,6 @@ def _flag(name, default=False):
     return _env(name, str(default)).strip().lower() in ("1", "true", "yes", "on")
 
 
-# Everything below is optional. An unconfigured source is omitted from the panel
-# rather than rendered as an error.
 LANG = _env("LANG_CODE", "en")
 NODE_NAME = _env("NODE_NAME", "") or _env("PVE_NODE", "") or platform.node()
 WEATHER_LABEL = _env("WEATHER_LABEL", "")
@@ -52,7 +39,6 @@ PVE_TOKEN_SECRET = _env("PVE_TOKEN_SECRET", "")
 
 if HOST_SOURCE == "proxmox" and PVE_HOST and PVE_TOKEN_ID and PVE_TOKEN_SECRET:
     if not VERIFY_SSL:
-        # Proxmox serves a self-signed cert; without this every poll warns.
         import urllib3
 
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -69,7 +55,6 @@ else:
         log.warning("HOST_SOURCE=proxmox but PVE_* is incomplete; using local /proc")
     host = local_host_source()
 
-# --- weather: omitted without coordinates -----------------------------------
 WEATHER_LAT = _env("WEATHER_LAT", "")
 WEATHER_LON = _env("WEATHER_LON", "")
 weather = (
@@ -178,9 +163,9 @@ def _state():
 def dash_png():
     png = override.get()
     if png is None:
-        png = (_show_art(datetime.now()) and _art_png()) or render.render(_state())
+        png = (_show_art(datetime.now()) and _art_png()) or layout.render_current(_state())
     return Response(
-        png,
+        layout.fit_to_screen(png),
         mimetype="image/png",
         # The Kindle fetches with curl on a timer; a cached copy would freeze it.
         headers={"Cache-Control": "no-store, must-revalidate"},
@@ -259,7 +244,83 @@ def art_png():
         return jsonify(error="could not fetch a photo (see the logs)"), 502
     return Response(png, mimetype="image/png",
                     headers={"Cache-Control": "no-store, must-revalidate"})
+# JYNX COMMIT CODE FOR HTML BACK-END
+CONFIG_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.html")
 
+
+def _authorised():
+    """Same rule as /override: no INGEST_TOKEN means writes are closed."""
+    if not INGEST_TOKEN:
+        return jsonify(error="saving is closed (no INGEST_TOKEN set)"), 503
+    if not hmac.compare_digest(request.headers.get("X-Dashink-Token", ""), INGEST_TOKEN):
+        log.warning("rejected config change from %s: bad token", request.remote_addr)
+        return jsonify(error="unauthorized"), 401
+    return None
+
+
+@app.get("/config.html")
+def config_html():
+    with open(CONFIG_HTML, "rb") as f:
+        return Response(f.read(), mimetype="text/html",
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/config.json")
+def config_get():
+    saved = layout.load()
+    return jsonify(
+        saved=saved is not None,
+        layout=saved,
+        default=layout.default_layout(_state()),
+        widgets=layout.WIDGETS,
+        max_rows=layout.MAX_ROWS,
+        max_cells=layout.MAX_CELLS,
+    )
+
+
+@app.put("/config.json")
+def config_put():
+    denied = _authorised()
+    if denied:
+        return denied
+    try:
+        clean = layout.validate(request.get_json(silent=True))
+    except (ValueError, TypeError) as exc:
+        return jsonify(error=str(exc)), 400
+    try:
+        layout.save(clean)
+    except OSError as exc:
+        log.error("could not write %s: %s", layout.PATH, exc)
+        return jsonify(error=f"could not write {layout.PATH}: {exc.strerror or exc}"), 500
+    log.info("layout saved: %d rows", len(clean["rows"]))
+    return jsonify(ok=True)
+
+
+@app.delete("/config.json")
+def config_delete():
+    denied = _authorised()
+    if denied:
+        return denied
+    try:
+        layout.clear()
+    except OSError as exc:
+        return jsonify(error=f"could not delete {layout.PATH}: {exc.strerror or exc}"), 500
+    log.info("layout deleted; using the built-in panel")
+    return jsonify(ok=True)
+
+
+@app.post("/preview.png")
+def preview_png():
+    """Render a draft layout with live data. Nothing is saved."""
+    try:
+        clean = layout.validate(request.get_json(silent=True))
+    except (ValueError, TypeError) as exc:
+        return jsonify(error=str(exc)), 400
+    return Response(layout.render_layout(_state(), clean), mimetype="image/png",
+                    headers={"Cache-Control": "no-store"})
+
+
+#ABOVE FOR TESTING ONLY
 
 @app.get("/state.json")
 def state_json():
