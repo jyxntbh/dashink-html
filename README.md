@@ -1,3 +1,13 @@
+Please give some love to the original dashink creator https://github.com/dietrichmax/dashink/tree/main
+
+All I have done is make changes to app.py, create a config file that is editable via `http://<host>:8099/config.html`
+<img width="938" height="978" alt="image" src="https://github.com/user-attachments/assets/8b6bb10c-c60c-4e73-ab99-f85ac968c53f" />
+
+To use this version please follow the same install steps below but replace github links with this one.
+
+Same commands - same config apart from being able to edit the height for your specific kindle
+
+
 # dashink
 
 Homelab status and weather rendered to a 600x800 greyscale PNG for a jailbroken Kindle used as a wall dashboard.
