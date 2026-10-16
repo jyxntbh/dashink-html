@@ -1,5 +1,7 @@
 Please give some love to the original dashink creator https://github.com/dietrichmax/dashink/tree/main
 
+View his main documentation for all details
+
 All I have done is make changes to app.py, create a config file that is editable via `http://<host>:8099/config.html`
 <img width="938" height="978" alt="image" src="https://github.com/user-attachments/assets/8b6bb10c-c60c-4e73-ab99-f85ac968c53f" />
 
@@ -12,11 +14,10 @@ Same commands - same config apart from being able to edit the height for your sp
 
 Homelab status and weather rendered to a 600x800 greyscale PNG for a jailbroken Kindle used as a wall dashboard.
 
-![dashboard](docs/dash.png)
-
 ![the panel running on a Kindle](docs/device.jpg)
 
 Built for a **Kindle 7th Generation (KT2, 2014)** on firmware `5.12.2.2`: 600x800, 167 ppi, 16 grey levels, no front light. Any device that can fetch a URL and draw a PNG will work; the size is set by `server/render.py`.
+`No longer built for a specific kindle, can be used on ANY - J`
 
 The service does one thing: `GET /dash.png` renders the current panel from whatever the sources last returned. There is no scheduler and nothing persisted. The Kindle fetches that URL on a loop and draws it to the framebuffer. E-ink holds the last image with no power, so a device that dies mid-loop leaves a readable screen.
 
@@ -25,17 +26,22 @@ The service does one thing: `GET /dash.png` renders the current panel from whate
 ## Quickstart
 
 ```bash
-git clone https://github.com/dietrichmax/dashink
+git clone https://github.com/jynxtbh/dashink-html
 cd dashink
 cp .env.example .env
 ```
 
-Set `WEATHER_LAT` and `WEATHER_LON` in `.env`, in decimal degrees. That is the only edit needed. Every source is optional and each one is omitted from the panel when it is not configured, so two coordinates already give you a usable screen.
+Set `WEATHER_LAT` and `WEATHER_LON` in `.env`, in decimal degrees. Use google "What are my coordinates"
+
+Inside of the .env file at the bottom please add `DASHINK_SCREEN=` with the exact pixel dimensions of your kindle
+
+Note: It will not change the HTML file. I just done this as a fast silly project
 
 ```bash
 docker compose up -d
 curl -o dash.png http://localhost:8099/dash.png
 ```
+If this step works, you will be able to also visit `/config.html` and view a live preview of what the kindle should look like.
 
 Open `dash.png` and you should have weather, a host tile and a footer. Add `KUMA_*`, `IMMICH_*` and the storage collector as you want them; nothing else has to change when you do.
 
